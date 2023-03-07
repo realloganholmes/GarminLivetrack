@@ -1,0 +1,104 @@
+import requests
+import base64
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.chrome.options import Options
+
+
+refresh_token = {YOUR REFRESH TOKEN}
+client_id = {YOUR CLIENT ID}
+client_secret = {YOUR CLIENT SECRET}
+
+def refreshAccessToken():
+    url = "https://oauth2.googleapis.com/token"
+
+    res = requests.post(url, data={
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+        "client_secret": client_secret
+    })
+
+    access_token = ""
+    if res.status_code == 200:
+        access_token = res.json()["access_token"]
+        return access_token
+    else:
+        print("Failed to refresh the access token:", res.text)
+
+def getRecentEmail(acces_token):
+    sender = "noreply@garmin.com"
+    url = "https://www.googleapis.com/gmail/v1/users/me/messages?q=from:{sender}&sort=newest"
+    url = url.format(sender=sender)
+
+    res = requests.get(url, headers={
+        "Authorization": "Bearer " + access_token
+    })
+
+    if res.status_code == 200:
+        messages = res.json()["messages"]
+        if messages:
+            message_id = messages[0]["id"]
+            url = "https://www.googleapis.com/gmail/v1/users/{userId}/messages/{messageId}"
+            url = url.format(userId="me", messageId=message_id)
+
+            res = requests.get(url, headers={
+                "Authorization": "Bearer " + access_token
+            })
+
+            if res.status_code == 200:
+                return res.json()
+            else:
+                print("Failed to retrieve the message:", res.text)
+        else:
+            print("No messages found.")
+    else:
+        print("Failed to search for messages:", res.text)
+
+def getLinkFromHTML(message):
+    payload = message["payload"]
+    for part in payload["parts"]:
+        data = part["body"]["data"]
+        message_body = data.replace("-","+").replace("_","/")
+        message_body = bytes(message_body, "UTF-8")
+        message_body = base64.b64decode(message_body).decode("UTF-8")
+        
+        soup = BeautifulSoup(message_body, 'html.parser')
+        # Find the anchor tag with the text "Watch My Live Activity"
+        link = soup.findAll("a")[1]
+        # Extract the href attribute from the link
+        url = link['href']
+        return url
+
+def checkActive(url):
+    driver = webdriver.Chrome()
+
+    driver.get(url)
+    #delay = 0
+    #try:
+    #    myElem = WebDriverWait(driver, delay).until(EC.presence_of_element_located((By.CLASS_NAME, 'header')))
+    #except TimeoutException:
+    #    print("Loading took too much time!")
+    content = driver.page_source
+    driver.quit()
+
+    soup = BeautifulSoup(content, 'html.parser')
+    expiredDivs = soup.find("div", class_="expired-msg")
+    if (expiredDivs is None):
+        return True
+    else:
+        return False
+
+access_token = refreshAccessToken()
+emailHTML = getRecentEmail(access_token)
+runLink = getLinkFromHTML(emailHTML)
+isActive = checkActive(runLink)
+if (isActive):
+    print("active")
+    print(runLink)
+else:
+    print("inactive")

@@ -1,0 +1,73 @@
+<iframe id="frame" src="" style="width: 100vw; height: 100vh;"></iframe>
+
+<script>
+    var refresh_token = {YOUR REFRESH TOKEN};
+    var client_id = {YOUR CLIENT ID};
+    var client_secret = {YOUR CLIENT SECRET};
+
+    function refreshAccessToken() {
+        $.post(
+            "https://oauth2.googleapis.com/token",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": client_id,
+                "client_secret": client_secret
+            },
+            function(data) {
+                getRecentEmail(data["access_token"]);
+            }
+        );
+    }
+
+    function getRecentEmail(accessToken) {
+        $.ajax({
+            url: "https://www.googleapis.com/gmail/v1/users/me/messages?q=from:noreply@garmin.com&sort=newest",
+            headers: {"Authorization": "Bearer " + accessToken},
+            type: "GET",
+            dataType: 'json',
+            success:
+                function(data) {
+                    messages = data["messages"];
+                    if (messages != null) {
+                        var messageID = messages[0]["id"];
+                        $.ajax({
+                            url: "https://www.googleapis.com/gmail/v1/users/me/messages/" + messageID,
+                            headers: {"Authorization": "Bearer " + accessToken},
+                            type: "GET",
+                            dataType: 'json',
+                            success:
+                                function(data) {
+                                    getLinkFromHTML(data);
+                                }
+                        });
+                    }
+                }
+        });
+    }
+
+    function getLinkFromHTML(message) {
+        var payload = message["payload"];
+        var parts = payload["parts"];
+        for (var i = 0; i < parts.length; i++) {
+            var part = parts[i];
+            var data = part["body"]["data"];
+
+            var message_body = data.replace(/-/g,"+").replace(/_/g,"/");
+            var decodedHTML = atob(message_body);
+
+            var parser = new DOMParser();
+            var parsed = parser.parseFromString(decodedHTML, "text/html");
+            var links = parsed.getElementsByTagName("a");
+            var link = links[1];
+            var url = link.getAttribute("href");
+            setPage(url);
+        }
+    }
+
+    function setPage(url) {
+        document.getElementById('frame').src = url;
+    }
+
+    refreshAccessToken();
+</script>
